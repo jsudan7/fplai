@@ -226,3 +226,29 @@ jobs:
             echo "| simulate (best-effort) | ${{ steps.simulate.outcome }} |"
             echo "| publish-static | ${{ steps.publish.outcome }} |"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish latest JSON to model-output branch
+        if: ${{ !cancelled() && steps.publish.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: ${{ github.workspace }}
+        run: |
+          bundle_tmp="$(mktemp -d)"
+          cp -R site-data/. "$bundle_tmp/"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin model-output:model-output
+          git checkout model-output
+
+          git rm -rf .
+          git clean -fdx
+          cp -R "$bundle_tmp"/. .
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "model-output already up to date"
+          else
+            git commit -m "Update model output (${GITHUB_RUN_ID})"
+            git push origin model-output
+          fi
