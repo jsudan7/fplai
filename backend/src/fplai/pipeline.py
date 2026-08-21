@@ -200,12 +200,17 @@ def run_backfill(seasons: Sequence[int] | None = None) -> None:
             console.print(f"    [yellow]skipping Understat {season} (not yet served)[/yellow]")
 
     console.print("  ClubElo snapshot + current PL club histories ...")
-    elo = clubelo.EloClient()
-    today = dt.date.today()
-    snap = elo.pl_snapshot(today)
-    for club in snap["Club"]:
-        elo.team_history(str(club))
-    console.print(f"    {len(snap)} PL clubs archived under raw/clubelo/")
+    try:
+        elo = clubelo.EloClient()
+        today = dt.date.today()
+        snap = elo.pl_snapshot(today)
+        for club in snap["Club"]:
+            elo.team_history(str(club))
+        console.print(f"    {len(snap)} PL clubs archived under raw/clubelo/")
+    except Exception as exc:
+        console.print(
+            f"    [yellow]ClubElo unavailable - continuing without it: {exc}[/yellow]"
+        )
 
     console.print("[bold]backfill[/bold]: done")
 
@@ -617,7 +622,8 @@ def run_train(
                 "sigma_floor": calibration.sigma_floor,
             },
             indent=1,
-        )
+        ),
+        encoding="utf-8",
     )
     console.print(
         f"  bonus: calibration fitted on season {cal_season}"
@@ -643,7 +649,7 @@ def run_train(
         },
         "timings_s": timings,
     }
-    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1))
+    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
     console.print(f"[bold]train[/bold]: artifacts saved to {out_dir}")
     return manifest
 
@@ -665,13 +671,13 @@ def _load_artifacts(
     manifest_path = root / "manifest.json"
     if not manifest_path.exists():
         raise FileNotFoundError(f"{manifest_path} is missing — run `fplai train` first")
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     minutes_model = LgbMinutesModel.load(root / "minutes")
     team_model = TeamModel.load(root / "team")
     rates_model = RatesModel.load(root / "rates")
     cal_path = root / "bonus" / "calibration.json"
     if cal_path.exists():
-        raw = json.loads(cal_path.read_text())
+        raw = json.loads(cal_path.read_text(encoding="utf-8"))
         calibration = BonusCalibration(
             bias=raw["bias"],
             sigma_intercept=raw["sigma_intercept"],
@@ -1319,7 +1325,7 @@ def _load_chip_sim_report(processed: Path, season: int, start_gw: int) -> Any | 
     from fplai.optimizer.season_sim import ChipSimReport
 
     try:
-        report = ChipSimReport.model_validate_json(path.read_text())
+        report = ChipSimReport.model_validate_json(path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001 - a stale artifact must not block optimize
         console.print(f"  [yellow]chip_sim_report.json unreadable ({exc}) — ignoring[/yellow]")
         return None
@@ -1668,7 +1674,7 @@ def run_optimize(
     from fplai.optimizer.milp import SolveParams
 
     tail = 2 if plan_horizon >= 4 else 0
-    solve_params = SolveParams(no_transfer_last_gws=tail)
+    solve_params = SolveParams(no_transfer_last_gws=tail, no_chips=not run_chips)
     with _capture_chip_curves() as captured:
         rec = plans.build_recommendation(
             state,
@@ -1718,14 +1724,15 @@ def run_optimize(
                     "recommendation": json.loads(rec.model_dump_json()),
                 },
                 indent=2,
-            )
+            ),
+            encoding="utf-8",
         )
     else:
-        rec_path.write_text(rec.model_dump_json(indent=2))
+        rec_path.write_text(rec.model_dump_json(indent=2), encoding="utf-8")
     written = [rec_path]
     if rec.dream_team is not None:
         dream_path = out / "dream_team.json"
-        dream_path.write_text(rec.dream_team.model_dump_json(indent=2))
+        dream_path.write_text(rec.dream_team.model_dump_json(indent=2), encoding="utf-8")
         written.append(dream_path)
     # chip_curves.parquet: the season-simulation v2 frame (full chip window + MC
     # probability columns) when a fresh matching report exists, else the captured
@@ -1896,14 +1903,14 @@ def run_simulate(
         frame.to_parquet(path, index=False)
         written.append(path)
     report_path = out / "chip_sim_report.json"
-    report_path.write_text(report.model_dump_json(indent=1))
+    report_path.write_text(report.model_dump_json(indent=1), encoding="utf-8")
     written.append(report_path)
 
     # ---- fold the verdicts into an existing recommendation.json ----------------------
     rec_path = out / "recommendation.json"
     if rec_path.exists():
         try:
-            raw = json.loads(rec_path.read_text())
+            raw = json.loads(rec_path.read_text(encoding="utf-8"))
             wrapped = "recommendation" in raw and "entry_id" in raw
             rec = plans.Recommendation.model_validate(
                 raw["recommendation"] if wrapped else raw
@@ -1912,9 +1919,9 @@ def run_simulate(
                 updated = plans.apply_sim_to_recommendation(rec, report)
                 if wrapped:
                     raw["recommendation"] = json.loads(updated.model_dump_json())
-                    rec_path.write_text(json.dumps(raw, indent=2))
+                    rec_path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
                 else:
-                    rec_path.write_text(updated.model_dump_json(indent=2))
+                    rec_path.write_text(updated.model_dump_json(indent=2), encoding="utf-8")
                 written.append(rec_path)
                 console.print("  recommendation.json chip advice re-verdicted from the sim")
             else:

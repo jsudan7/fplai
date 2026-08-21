@@ -246,7 +246,7 @@ def latest_live_snapshot_dir(snapshots_root: Path | None = None) -> Path | None:
         if not bootstrap_path.exists() or not (snap_dir / "fixtures.json").exists():
             continue
         try:
-            state = parse_season_state(json.loads(bootstrap_path.read_text()))
+            state = parse_season_state(json.loads(bootstrap_path.read_text(encoding="utf-8")))
         except (ValueError, json.JSONDecodeError) as exc:
             logger.warning("skipping unparseable snapshot %s: %s", snap_dir, exc)
             continue
@@ -267,8 +267,8 @@ def load_live_context(
         snap_dir = latest_live_snapshot_dir(snapshots_root)
         if snap_dir is None:
             return None
-    bootstrap = json.loads((snap_dir / "bootstrap.json").read_text())
-    fixtures_json = json.loads((snap_dir / "fixtures.json").read_text())
+    bootstrap = json.loads((snap_dir / "bootstrap.json").read_text(encoding="utf-8"))
+    fixtures_json = json.loads((snap_dir / "fixtures.json").read_text(encoding="utf-8"))
     state = parse_season_state(bootstrap)
     season = int(state.season)
     return LiveContext(
@@ -963,7 +963,7 @@ def build_adjustments(
         "dampening": {str(code): d for code, d in sorted(fatigue.items())},
         **report,
     }
-    (processed / f"fatigue_{ctx.season}.json").write_text(json.dumps(payload, indent=1))
+    (processed / f"fatigue_{ctx.season}.json").write_text(json.dumps(payload, indent=1), encoding="utf-8")
     overrides, returns_report = availability_overrides(ctx)
     (processed / f"availability_{ctx.season}.json").write_text(
         json.dumps(
@@ -973,7 +973,8 @@ def build_adjustments(
                 "returns": {str(c): r for c, r in sorted(returns_report.items())},
             },
             indent=1,
-        )
+        ),
+        encoding="utf-8",
     )
     priors = RatePriors().fit(player_match)
     return LiveAdjustments(
@@ -1303,7 +1304,7 @@ def fetch_live_odds(
     today_path = root / f"epl_odds_{dt.datetime.now(dt.UTC).date().isoformat()}.json"
     events: list[dict[str, Any]] | None = None
     if today_path.exists():
-        events = json.loads(today_path.read_text())
+        events = json.loads(today_path.read_text(encoding="utf-8"))
         logger.info("live odds: using today's cached snapshot %s", today_path)
     elif use_network:
         from fplai.data.odds_api import TheOddsApiClient
@@ -1315,12 +1316,12 @@ def fetch_live_odds(
             logger.warning("live odds fetch failed: %s", exc)
             events = None
         if events is not None:
-            today_path.write_text(json.dumps(events))
+            today_path.write_text(json.dumps(events), encoding="utf-8")
     if events is None:
         cached = sorted(root.glob("epl_odds_*.json"), reverse=True)
         if not cached:
             return None
-        events = json.loads(cached[0].read_text())
+        events = json.loads(cached[0].read_text(encoding="utf-8"))
         logger.info("live odds: falling back to cached snapshot %s", cached[0])
     frame = odds_frame_from_events(events, ctx)
     return frame if len(frame) else None
